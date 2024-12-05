@@ -259,7 +259,7 @@ class PulidFluxInsightFaceLoader:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "provider": (["CPU", "CUDA", "ROCM"],),
+                "provider": (["CUDA", "CPU", "ROCM"],),  # Default to CUDA first
             },
         }
 
@@ -268,13 +268,41 @@ class PulidFluxInsightFaceLoader:
     CATEGORY = "pulid"
 
     def load_insightface(self, provider):
+        import onnxruntime
+
+        # Force specific providers and their order
+        providers = []
+        if provider == "CUDA":
+            providers = [
+                (
+                    "CUDAExecutionProvider",
+                    {
+                        "device_id": 0,
+                        "arena_extend_strategy": "kNextPowerOfTwo",
+                        "gpu_mem_limit": int(1024 * 1024 * 1024 * 1.7),  # 1.7 GB
+                        "cudnn_conv_algo_search": "EXHAUSTIVE",
+                        "do_copy_in_default_stream": True,
+                    },
+                ),
+                "CPUExecutionProvider",
+            ]
+        elif provider == "ROCM":
+            providers = [
+                ("ROCMExecutionProvider", {"device_id": 0}),
+                "CPUExecutionProvider",
+            ]
+        else:
+            providers = ["CPUExecutionProvider"]
+
+        # Set global ONNX providers
+        onnxruntime.set_default_logger_severity(3)  # Set to warning level
+        current_providers = onnxruntime.get_available_providers()
+        logging.info(f"Available ONNX providers: {current_providers}")
+
+        # Initialize FaceAnalysis with specific providers
         model = FaceAnalysis(
-            name="antelopev2",
-            root=INSIGHTFACE_DIR,
-            providers=[
-                provider + "ExecutionProvider",
-            ],
-        )  # alternative to buffalo_l
+            name="antelopev2", root=INSIGHTFACE_DIR, providers=providers
+        )
         model.prepare(ctx_id=0, det_size=(640, 640))
 
         return (model,)
